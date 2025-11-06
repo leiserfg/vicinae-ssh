@@ -1,42 +1,82 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Action, ActionPanel, Icon, List, showToast, getPreferenceValues } from '@vicinae/api';
+import React, { useState, useMemo, useEffect } from "react";
+import {
+  Action,
+  ActionPanel,
+  Icon,
+  List,
+  showToast,
+  getPreferenceValues,
+  runInTerminal,
+} from "@vicinae/api";
+import Fuse from "fuse.js";
 
 export default function ControlledList() {
   // search is explicitly controlled by state
-  const [searchText, setSearchText] = useState('');
+  const [searchText, setSearchText] = useState("");
   const [hosts, setHosts] = useState([]);
-  const {executor} = getPreferenceValues();
-  useEffect(()=>{
-    getSshHostsFromConfig().then(setHosts)
-  },[])
+  const { terminal } = getPreferenceValues();
 
-const filterHosts = (query: string, hosts: string[]) => {
-  let filtered = hosts.filter(h => h.toLowerCase().includes(query.toLowerCase()));
-  if (filtered.length === 0) {
-    const trimmedQuery = query.trim();
-    return [{ title: `ssh "${trimmedQuery}"`, host: trimmedQuery, subtitle: 'fallback' }];
-  }
-  return filtered.map(h => ({ title: `ssh ${h}`, host: h, subtitle: '' }));
-}
+  useEffect(() => {
+    getSshHostsFromConfig().then(setHosts);
+  }, []);
 
-  const filteredHosts = useMemo(() => filterHosts(searchText, hosts), [searchText, hosts]);
+  // Fuzzy search using Fuse.js
+  const filteredList = useMemo(() => {
+    const trimmedQuery = searchText.trim();
+    if (!trimmedQuery) {
+      // If search is empty, show all hosts
+      return hosts.map((item) => ({ item }));
+    }
+    const fuse = new Fuse(hosts, { includeScore: true, threshold: 0.4 });
+    return fuse.search(trimmedQuery);
+  }, [hosts, searchText]);
+
+  const filteredHosts = useMemo(() => {
+    const filtered = filteredList.map((it) => ({
+      // Fuse returns {item, ...}, direct mapping for empty search, otherwise item is inside result
+      title: `ssh "${it.item}"`,
+      host: it.item,
+      subtitle: "from .ssh/config",
+    }));
+    const trimmedQuery = searchText.trim();
+    if (trimmedQuery !== "") {
+      filtered.push({
+        title: `ssh ${trimmedQuery}`,
+        host: trimmedQuery,
+        subtitle: "fallback",
+      });
+    }
+    return filtered;
+  }, [filteredList, searchText]);
 
   return (
-    <List searchText={searchText} onSearchTextChange={setSearchText} searchBarPlaceholder={'Search hosts...'}>
-      <List.Section title={'Hosts'}>
-        {filteredHosts.map(host => (
+    <List
+      searchText={searchText}
+      onSearchTextChange={setSearchText}
+      searchBarPlaceholder={"Search hosts..."}
+    >
+      <List.Section title={"Hosts"}>
+        {filteredHosts.map((host) => (
           <List.Item
             key={host.host}
             title={host.title}
             subtitle={host.subtitle}
             icon={Icon.Terminal}
             actions={
-                <ActionPanel>
-                  <Action title="Open" icon={Icon.Cog} onAction={() => {
-                    showToast({ title: `Running ${executor} ${host.host}`});
-                    executeCommand(`${executor} ${host.host}`)
-                  }} />
-                </ActionPanel>
+              <ActionPanel>
+                <Action
+                  title="Open"
+                  icon={Icon.Cog}
+                  onAction={() => {
+                    showToast({ title: `Running ssh ${host.host}` });
+                    if (terminal != "") {
+                      executeCommand(`${terminal} ${host.host}`);
+                    } else {
+                      runInTerminal(["ssh", host.host]);
+                    }
+                  }}
+                />
+              </ActionPanel>
             }
           />
         ))}
@@ -45,8 +85,8 @@ const filterHosts = (query: string, hosts: string[]) => {
   );
 }
 
-import fs from 'fs';
-import os from 'os';
+import fs from "fs";
+import os from "os";
 
 /**
  * Reads ~/.ssh/config and returns a Promise of host names defined there.
@@ -54,15 +94,15 @@ import os from 'os';
 export async function getSshHostsFromConfig(): Promise<string[]> {
   const sshConfigPath = `${os.homedir()}/.ssh/config`;
   try {
-    const content = await fs.promises.readFile(sshConfigPath, 'utf8');
-    const lines = content.split('\n');
+    const content = await fs.promises.readFile(sshConfigPath, "utf8");
+    const lines = content.split("\n");
     const hosts: string[] = [];
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed.startsWith('Host ')) {
+      if (trimmed.startsWith("Host ")) {
         const hostnames = trimmed.slice(5).trim().split(/\s+/);
         for (const h of hostnames) {
-          if (h !== '*' && h.length > 0) {
+          if (h !== "*" && h.length > 0) {
             hosts.push(h);
           }
         }
@@ -74,7 +114,6 @@ export async function getSshHostsFromConfig(): Promise<string[]> {
     return [];
   }
 }
-
 
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
@@ -100,7 +139,7 @@ export interface ExecResult {
  */
 export async function executeCommand(
   command: string,
-  options: ExecOptions = {}
+  options: ExecOptions = {},
 ): Promise<ExecResult> {
   try {
     const { stdout, stderr } = await execAsync(command, {
@@ -115,7 +154,8 @@ export async function executeCommand(
       stderr: stderr.trim(),
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown command error";
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown command error";
 
     return {
       success: false,
