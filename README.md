@@ -3,12 +3,7 @@
 This extension allows you to quickly open a remote host via SSH from Vicinae. It provides a command (`ssh`) that launches an SSH session using your preferred terminal executor.
 
 - **SSH Command**: Easily connect to a remote host using SSH.
-- **Customizable Executor**: Configure the command used to launch SSH (default: `kitty -1 kitten ssh`).
-## Features
-- **SSH Command**: Easily connect to a remote host using SSH.
-- **Customizable Executor**: Configure the command used to launch SSH (default: `kitty -1 kitten ssh`).
-- **SSH Command**: Easily connect to a remote host using SSH.
-- **Customizable Executor**: Configure the command used to launch SSH (default: `kitty -1 kitten ssh`).
+- **Customizable terminal**: Configure the terminal used to launch SSH, if empty rollback to default.
 
 ## Usage
 1. Install dependencies:
@@ -25,7 +20,7 @@ This extension allows you to quickly open a remote host via SSH from Vicinae. It
    ```
 
 ## Configuration
-You can customize the SSH executor command in the extension preferences. By default, it uses `kitty -1 kitten ssh`, but you can change this to any command that suits your workflow.
+You can customize the terminal command in the extension preferences. If empty it will use the default (see vicinae doc) but you can use something like  `kitty -1 kitten`, do what suits your workflow.
 
 ## License
 MIT
