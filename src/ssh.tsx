@@ -7,17 +7,37 @@ import {
   showToast,
   getPreferenceValues,
   runInTerminal,
+  Cache,
+  closeMainWindow,
 } from "@vicinae/api";
+
 import Fuse from "fuse.js";
 
+const cache = new Cache();
+
 export default function ControlledList() {
+  const { terminal } = getPreferenceValues();
+  const cached = cache.get("visited");
+  const hostsVisited = cached ? JSON.parse(cached) : [];
+
   // search is explicitly controlled by state
   const [searchText, setSearchText] = useState("");
-  const [hosts, setHosts] = useState([]);
-  const { terminal } = getPreferenceValues();
+  const [hosts, setHosts] = useState<{ host: string; subtitle: string }[]>([]);
 
   useEffect(() => {
-    getSshHostsFromConfig().then(setHosts);
+    getSshHostsFromConfig().then((configHosts) => {
+      // hostsVisited is a list of strings
+      const historyHosts = hostsVisited.map((h) => ({
+        host: h,
+        subtitle: "from history",
+      }));
+      // Avoid duplicates: filter out history hosts that are already in configHosts
+      const configHostNames = new Set(configHosts.map((h) => h.host));
+      const uniqueHistoryHosts = historyHosts.filter(
+        (h) => !configHostNames.has(h.host),
+      );
+      setHosts([...uniqueHistoryHosts, ...configHosts]);
+    });
   }, []);
 
   // Fuzzy search using Fuse.js
@@ -27,17 +47,24 @@ export default function ControlledList() {
       // If search is empty, show all hosts
       return hosts.map((item) => ({ item }));
     }
-    const fuse = new Fuse(hosts, { includeScore: true, threshold: 0.4 });
+    const fuse = new Fuse(hosts, {
+      keys: ["host"],
+      includeScore: true,
+      threshold: 0.4,
+    });
     return fuse.search(trimmedQuery);
   }, [hosts, searchText]);
 
   const filteredHosts = useMemo(() => {
-    const filtered = filteredList.map((it) => ({
+    const filtered = filteredList.map((it) => {
       // Fuse returns {item, ...}, direct mapping for empty search, otherwise item is inside result
-      title: `ssh "${it.item}"`,
-      host: it.item,
-      subtitle: "from .ssh/config",
-    }));
+      const hostObj = it.item;
+      return {
+        title: `ssh \"${hostObj.host}\"`,
+        host: hostObj.host,
+        subtitle: hostObj.subtitle,
+      };
+    });
     const trimmedQuery = searchText.trim();
     if (trimmedQuery !== "") {
       filtered.push({
@@ -69,11 +96,17 @@ export default function ControlledList() {
                   icon={Icon.Cog}
                   onAction={() => {
                     showToast({ title: `Running ssh ${host.host}` });
+                    // Add to cache if not already present
+                    if (!hostsVisited.includes(host.host)) {
+                      const updated = [host.host, ...hostsVisited];
+                      cache.set("visited", JSON.stringify(updated));
+                    }
                     if (terminal != "") {
                       executeCommand(`${terminal} ${host.host}`);
                     } else {
                       runInTerminal(["ssh", host.host]);
                     }
+                    closeMainWindow();
                   }}
                 />
               </ActionPanel>
@@ -96,14 +129,14 @@ export async function getSshHostsFromConfig(): Promise<string[]> {
   try {
     const content = await fs.promises.readFile(sshConfigPath, "utf8");
     const lines = content.split("\n");
-    const hosts: string[] = [];
+    const hosts: { host: string; subtitle: string }[] = [];
     for (const line of lines) {
       const trimmed = line.trim();
       if (trimmed.startsWith("Host ")) {
         const hostnames = trimmed.slice(5).trim().split(/\s+/);
         for (const h of hostnames) {
           if (h !== "*" && h.length > 0) {
-            hosts.push(h);
+            hosts.push({ host: h, subtitle: "from .ssh/config" });
           }
         }
       }
